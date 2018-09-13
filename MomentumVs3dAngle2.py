@@ -6,7 +6,7 @@ import numpy as np
 from array import array
 
 
-
+# python loop over floats
 def frange(start, stop, step):
     x = start
     while x < stop:
@@ -15,32 +15,38 @@ def frange(start, stop, step):
 
 
 ###################################################################
+########     Take file name from the command line   ###############
+######## The default is HighlandFormula_histo.root  ###############
+###################################################################
+parser = argparse.ArgumentParser()
+parser.add_argument("fileName"     , nargs='?', default = "HighlandFormula_histo.root", type = str, help="insert fileName")
+args     = parser.parse_args()
+fileName = args.fileName
+
+
+###################################################################
 ####################       Get TTree       ########################
 ###################################################################
-fileName = "HighlandFormula_histo.root"
 inFile   = TFile.Open(fileName)
 tTree    = inFile.Get("HighlandFormula/trackResTree")
 
-# Quick plot of the 2D Mom Vs Angle distribution
-cMomVsAngle = TCanvas("cMomVsAngle" ,"cMomVsAngle" ,0 ,0 ,600 ,600)
-cMomVsAngle.cd()
-tTree.Draw("wcP:theta_3d","theta_3d > 0 && theta_3d < 1","colz")
 
-
-## Momentum range: 400 - 1200 MeV
+### Define the momentum range      ###
+### Momentum range: 400 - 1200 MeV ###
 MomentumHistos_List = []
-maxMomentum         = 1200.
-minMomentum         = 400.
-binSize             = 50.
+maxMomentum         = 1200. # MeV
+minMomentum         = 400.  # MeV
+binSize             = 50.   # MeV
 nBinMom             = int((maxMomentum-minMomentum)/binSize)
 
+# Define the histogram for the theta3D^2 distributions
 for i in xrange(nBinMom):
     lowerBound = int(minMomentum + i*binSize)
     upperBound = int(minMomentum + (i+1)*binSize)
     theta3D_Temp = TH1D("theta_"+str(lowerBound)+"_"+str(upperBound)+"MeV", "theta_"+str(lowerBound)+"_"+str(upperBound)+"MeV", 300, 0., 0.03 )
     MomentumHistos_List.append(theta3D_Temp)
 
-#print MomentumHistos_List
+
 
 print "Entries: ", tTree.GetEntry()
 sillyCount =0 
@@ -49,11 +55,20 @@ for entry in tTree:
      if not sillyCount % 10000:
           print sillyCount
 
-     momentum   = entry.wcP
+     # Get the important variables from the ttree
+     momentum   = entry.wcP        # This is the momentum at the WC4 
+     eLoss      = entry.energyLoss # This is the energy loss between WC and the TPC Front Face
      angle3D    = entry.theta_3d
      angle3D_2  = angle3D*angle3D
 
 
+     # TO DO HERE:
+     # Calculate the momentum at the point where we are measuring the MCS
+
+
+
+     # We need to use the calculation of the momentum to go on 
+     # for now, I'm just using the WC mometum. 
      # Find the right histo to fill
      momentumBin = int(momentum/binSize - minMomentum/binSize)
      # Let's try to avoid stupid shit
@@ -61,16 +76,21 @@ for entry in tTree:
          MomentumHistos_List[momentumBin].Fill(angle3D_2)
 
 
+#Define the money plot
+highlandPlot = TH1D("HighlandFormula", "highlandFormula; Momentum [MeV/c]; #sigma_{MCS} [rad]", int(maxMomentum/binSize), 0., maxMomentum )
 
-highlandPlot = TH1D("HighlandFormula", "highlandFormula", int(maxMomentum/binSize), 0., maxMomentum )
-
-
+#Define the fitting function and the list of our parameters
 myExpo = TF1("expo","expo",0,0.01)
 sigma_List    = []
 sigmaErr_List = []
 
-print
-print
+# Loop on the theta3d^2 histograms. 
+# For each momentum bin: 
+#   1. fit an exponential 
+#   2. retreive the slope parameter (alpha in the paper)
+#   3. calculate sigma
+#   4. calculate the error on sigma from the error on alpha
+#   5. Fill the Highland formula plot
 for h in MomentumHistos_List:
     sigma    = -1000.
     sigmaErr = -1000.
@@ -81,8 +101,7 @@ for h in MomentumHistos_List:
         par1Err      = myExpo.GetParError(1)
         sigma        = TMath.Sqrt(1./(-2.*par1))
         sigmaErr     = (sigma /2.) * (par1Err/par1)  # simple error propagation sigma = sqrt(  par1 / 2 )
-#        print "expo par: ", myExpo.GetParameter(1)," +- ", myExpo.GetParError(1)
-#        print "par1    : ", par1," +- ", par1Err
+
 
 
     sigma_List   .append(sigma)
@@ -96,15 +115,9 @@ for h in MomentumHistos_List:
     highlandPlot.SetBinContent(momentumBin, sigma)
     highlandPlot.SetBinError(momentumBin, sigmaErr)
 
-print
 
-for i in xrange(len(MomentumHistos_List)):
-    print (MomentumHistos_List[i]).GetTitle(), (MomentumHistos_List[i]).GetEntries(), sigma_List[i], sigmaErr_List[i]
 
-print
-print
-
-# Calculating the true highland formula
+# Calculating the and storing the theoretical highland formula
 S2 = 13.6;
 c = 299792458;
 epsilon = 0.038;
@@ -126,8 +139,6 @@ for momExp in frange(100,1200,0.1):
     PExp.append(momExp);
     zero.append(0);
 
-
-
 g4x      = array('f', PExp)
 g4y      = array('f', SigmaExp )
 g4exl    = array('f', zero)
@@ -136,8 +147,6 @@ g4exr    = array('f', zero)
 nPoints=len(g4x)
 gr      = TGraphErrors ( nPoints , g4x , g4y     , g4exl, g4exr )
 gr.SetTitle("TheoreticalHF; Momentum [MeV/c]; Sigma [rad]")
-#gr . GetXaxis().SetRangeUser(0,1000)
-#gr . GetYaxis().SetRangeUser(0,2.)
 gr . SetLineWidth(2) ;
 gr . SetLineColor(kRed) ;
 gr . SetFillColor(0)
@@ -145,7 +154,7 @@ gr . SetFillColor(0)
 
 
 
-
+# Save everything
 outFile = TFile("MomVsTheta3d2_Highland.root","recreate")
 outFile.cd()
 
@@ -157,31 +166,6 @@ gr.Write()
 outFile.Write()
 outFile.Close()
 
-#
-
-'''
-# Comparison between plots
-
-cRaw.Divide(3,1)
-pRaw1 = cRaw.cd(1)
-pRaw1.SetGrid()
-recoData_Int.Draw("pe")
-
-pRaw2 = cRaw.cd(2)
-pRaw2.SetGrid()
-recoData_Inc.Draw("pe")
-cRaw.Update()
-
-pRaw3 = cRaw.cd(3)
-pRaw3.SetGrid()
-rawXS = recoData_Int.Clone("rawXS")
-rawXS.Sumw2()
-rawXS.Divide(recoData_Inc)
-rawXS.Scale(101.10968)
-rawXS.Draw("pe")
-
-cRaw.Update()
-'''
 
 raw_input()  
 
